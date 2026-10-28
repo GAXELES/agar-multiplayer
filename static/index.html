@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Juego Multijugador Tipo Agar.io</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: Arial, sans-serif;
+            color: white;
+        }
+        #gameCanvas {
+            background-color: #111;
+            display: block;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 14px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div><strong>Jugadores en línea:</strong> <span id="playerCount">0</span></div>
+        <div>Usa el ratón para moverte</div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        window.addEventListener("resize", () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+
+        const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+        const ws = new WebSocket(`${protocol}//${location.host}/ws`);
+
+        let players = {};
+        let foods = [];
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === "state") {
+                players = data.players || {};
+                foods = data.foods || [];
+                document.getElementById("playerCount").innerText = Object.keys(players).length;
+            }
+        };
+
+        window.addEventListener("mousemove", (e) => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    x: e.clientX,
+                    y: e.clientY
+                }));
+            }
+        });
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Dibujar comida
+            foods.forEach(food => {
+                ctx.beginPath();
+                ctx.arc(food.x, food.y, food.radius || 5, 0, Math.PI * 2);
+                ctx.fillStyle = food.color || "#00ff00";
+                ctx.fill();
+                ctx.closePath();
+            });
+
+            // Dibujar jugadores
+            Object.values(players).forEach(player => {
+                ctx.beginPath();
+                ctx.arc(player.x, player.y, player.radius || 20, 0, Math.PI * 2);
+                ctx.fillStyle = player.color || "#ff0000";
+                ctx.fill();
+                ctx.closePath();
+
+                if (player.name) {
+                    ctx.fillStyle = "#fff";
+                    ctx.textAlign = "center";
+                    ctx.fillText(player.name, player.x, player.y - (player.radius || 20) - 5);
+                }
+            });
+
+            requestAnimationFrame(draw);
+        }
+
+        draw();
+    </script>
+</body>
+</html>
