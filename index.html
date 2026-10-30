@@ -1,50 +1,142 @@
-<!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agar Multijugador</title>
-<style>
-*{box-sizing:border-box}body{margin:0;background:#101820;color:#eef7ff;font-family:Arial,sans-serif}.wrap{max-width:1100px;margin:auto;padding:14px}.top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.brand{font-size:25px;font-weight:900;color:#7be3ff}.muted{color:#a9bdcc;font-size:13px}.panel{background:#182634;border:1px solid #31485b;border-radius:12px;padding:12px;margin:12px 0}.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}input,button{border-radius:7px;padding:10px 12px;border:1px solid #496477;font-size:14px}input{background:#0d1822;color:white;min-width:130px}button{background:#27a9c5;color:#07151c;font-weight:bold;cursor:pointer;border:0}button.secondary{background:#324b60;color:white}button:disabled{opacity:.5;cursor:not-allowed}#game{display:block;width:100%;height:auto;background:#101b29;border:2px solid #314757;border-radius:9px;outline:none;touch-action:none} .gamearea{position:relative}.overlay{position:absolute;top:12px;left:12px;background:#07111dcc;padding:8px 10px;border-radius:7px;font-size:13px;line-height:1.6}.ranking{position:absolute;right:12px;top:12px;background:#07111dcc;padding:10px;border-radius:7px;min-width:150px;font-size:12px}.ranking b{display:block;margin-bottom:5px}.bottom{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:9px;font-size:13px}.status{color:#a9bdcc}.error{color:#ff8d9b}.success{color:#87f0b3}a{color:#8de6ff;overflow-wrap:anywhere}@media(max-width:600px){.ranking{top:auto;bottom:10px;right:10px;min-width:120px}.overlay{font-size:11px}}
-</style></head><body><div class="wrap">
-<div class="top"><div><div class="brand">AGAR MULTIJUGADOR</div><div class="muted">Salas privadas · Crece · Divídete · Compite</div></div><div id="status" class="status">Desconectado</div></div>
-<div class="panel"><div class="controls"><input id="name" maxlength="18" placeholder="Tu nombre" value="Jugador"><button id="create">Crear sala privada</button><input id="roomInput" maxlength="8" placeholder="Código de sala"><button id="join" class="secondary">Unirme a sala</button><button id="copy" class="secondary" disabled>Copiar enlace</button></div><div id="roomInfo" class="muted" style="margin-top:9px">Crea una sala o introduce el código que te compartieron.</div></div>
-<div class="gamearea"><canvas id="game" width="1000" height="620" tabindex="0"></canvas><div class="overlay" id="hud">Masa: —<br>Células: —<br>Jugadores: —</div><div class="ranking" id="ranking"><b>🏆 CLASIFICACIÓN</b>Entra a una sala para jugar.</div></div>
-<div class="bottom"><span>⌨️ <b>W A S D</b> mover · <b>ESPACIO</b> dividir · ratón orienta el impulso</span><span>Come puntos y absorbe células más pequeñas.</span></div>
-<div class="panel muted">Las salas y las partidas viven en la memoria del servidor. Si el servidor se reinicia, las partidas se borran. Comparte el enlace solo con las personas que quieras invitar.</div>
-</div>
-<script>
-(()=>{
-const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
-const statusEl=document.getElementById('status'),roomInfo=document.getElementById('roomInfo'),hud=document.getElementById('hud'),rankingEl=document.getElementById('ranking');
-const nameEl=document.getElementById('name'),roomInput=document.getElementById('roomInput'),createBtn=document.getElementById('create'),joinBtn=document.getElementById('join'),copyBtn=document.getElementById('copy');
-let socket=null,room='',myId='',state=null,keys={},aim={x:1,y:0},lastSend=0,gameStarted=false,camera={x:1500,y:1500};
-function setStatus(s,cls='status'){statusEl.className=cls;statusEl.textContent=s}
-function getRoomFromURL(){return new URLSearchParams(location.search).get('room')||''}
-function connect(rid){
- if(socket){socket.close();socket=null} room=rid.toUpperCase(); roomInput.value=room; state=null; myId='';
- const n=(nameEl.value.trim()||'Jugador').slice(0,18); const proto=location.protocol==='https:'?'wss:':'ws:';
- socket=new WebSocket(`${proto}//${location.host}/ws/${encodeURIComponent(room)}?name=${encodeURIComponent(n)}`);
- setStatus('Conectando…');roomInfo.textContent='Sala '+room+' · conectando…';
- socket.onopen=()=>{setStatus('Conectado','success');roomInfo.innerHTML='Sala privada <b>'+room+'</b>. Comparte este enlace: <a href="'+location.origin+'/?room='+room+'">'+location.origin+'/?room='+room+'</a>';copyBtn.disabled=false;canvas.focus();gameStarted=true};
- socket.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch{return}if(m.type==='welcome'){myId=m.id;setStatus('En sala '+m.room,'success')}else if(m.type==='state'){state=m}else if(m.type==='error'){setStatus(m.message,'error')}};
- socket.onerror=()=>setStatus('Error de conexión','error');socket.onclose=()=>{setStatus('Desconectado');gameStarted=false};
-}
-createBtn.onclick=async()=>{try{createBtn.disabled=true;const r=await fetch('/api/rooms',{method:'POST'});if(!r.ok)throw Error();const data=await r.json();history.replaceState(null,'','/?room='+data.room);connect(data.room)}catch{setStatus('No se pudo crear la sala. Revisa el servidor.','error')}finally{createBtn.disabled=false}};
-joinBtn.onclick=()=>{let r=roomInput.value.trim().toUpperCase();if(!/^[A-Z0-9]{4,8}$/.test(r)){setStatus('El código debe tener entre 4 y 8 letras o números.','error');return}history.replaceState(null,'','/?room='+r);connect(r)};
-copyBtn.onclick=async()=>{const url=location.origin+'/?room='+room;try{await navigator.clipboard.writeText(url);roomInfo.textContent='¡Enlace copiado! '+url}catch{roomInfo.textContent='Copia este enlace: '+url}};
-function keyDown(e){let k=e.key.toLowerCase();if(['w','a','s','d',' ','arrowup','arrowdown','arrowleft','arrowright'].includes(k))e.preventDefault();if(k===' '&&!e.repeat)sendInput(true);keys[k]=true}
-function keyUp(e){keys[e.key.toLowerCase()]=false}
-canvas.addEventListener('keydown',keyDown);canvas.addEventListener('keyup',keyUp);document.addEventListener('keydown',e=>{if(document.activeElement===nameEl||document.activeElement===roomInput)return;keyDown(e)});document.addEventListener('keyup',keyUp);
-canvas.addEventListener('pointerdown',()=>canvas.focus());canvas.addEventListener('pointermove',e=>{const r=canvas.getBoundingClientRect();const x=(e.clientX-r.left)*canvas.width/r.width,y=(e.clientY-r.top)*canvas.height/r.height;aim.x=x-canvas.width/2;aim.y=y-canvas.height/2;let l=Math.hypot(aim.x,aim.y)||1;aim.x/=l;aim.y/=l});
-function sendInput(split=false){if(!socket||socket.readyState!==1)return;let x=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrowleft?1:0),y=(keys.s||keys.arrowdown?1:0)-(keys.w||keys.arrowup?1:0);let l=Math.hypot(x,y);if(l>1){x/=l;y/=l}socket.send(JSON.stringify({type:'input',x,y,aimx:aim.x,aimy:aim.y,split}))}
-function rad(m){return Math.sqrt(Math.max(1,m))*4}
-function draw(){const cw=canvas.width,ch=canvas.height;ctx.clearRect(0,0,cw,ch);ctx.fillStyle='#101b29';ctx.fillRect(0,0,cw,ch);if(!state){ctx.fillStyle='#d8e7f1';ctx.textAlign='center';ctx.font='bold 26px Arial';ctx.fillText('Crea una sala o únete a tus amigos',cw/2,ch/2-10);ctx.font='16px Arial';ctx.fillText('WASD para moverte · ESPACIO para dividirte',cw/2,ch/2+23);requestAnimationFrame(draw);return}
- const me=state.players.find(p=>p.id===myId);if(me&&me.cells.length){camera.x+=(me.cells[0].x-camera.x)*.12;camera.y+=(me.cells[0].y-camera.y)*.12}
- const ox=cw/2-camera.x,oy=ch/2-camera.y,step=70;ctx.strokeStyle='#203142';ctx.lineWidth=1;let sx=((ox%step)+step)%step,sy=((oy%step)+step)%step;for(let x=sx;x<cw;x+=step){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,ch);ctx.stroke()}for(let y=sy;y<ch;y+=step){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(cw,y);ctx.stroke()}
- ctx.strokeStyle='#668096';ctx.lineWidth=5;ctx.strokeRect(ox,oy,state.world.w,state.world.h);
- for(const f of state.food){let x=f.x+ox,y=f.y+oy;if(x<-8||x>cw+8||y<-8||y>ch+8)continue;ctx.beginPath();ctx.arc(x,y,3.5,0,Math.PI*2);ctx.fillStyle=f.color;ctx.fill()}
- for(const p of state.players){for(const c of p.cells){const x=c.x+ox,y=c.y+oy,r=rad(c.mass);ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=p.color;ctx.fill();ctx.lineWidth=p.id===myId?3:1.5;ctx.strokeStyle='rgba(255,255,255,.8)';ctx.stroke();if(r>12){ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#10202b';ctx.font='bold '+Math.max(10,Math.min(19,r*.34))+'px Arial';ctx.fillText(p.name,x,y-5);ctx.font=Math.max(9,Math.min(13,r*.23))+'px Arial';ctx.fillText(Math.floor(c.mass),x,y+11)}}}
- if(me){hud.innerHTML='Masa: <b>'+me.mass+'</b><br>Células: <b>'+me.cells.length+'</b><br>Jugadores: <b>'+state.players.length+'</b>'}else hud.innerHTML='Esperando tu célula…';
- rankingEl.innerHTML='<b>🏆 CLASIFICACIÓN</b>'+state.ranking.map((p,i)=>`<div style="display:flex;justify-content:space-between;gap:12px;color:${me&&p.name===me.name?'#7be3ff':'#eef7ff'}"><span>${i+1}. ${escapeHTML(p.name)}</span><span>${p.mass}</span></div>`).join('');requestAnimationFrame(draw)}
-function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function tick(t){if(t-lastSend>33){sendInput(false);lastSend=t}requestAnimationFrame(tick)}
-requestAnimationFrame(draw);requestAnimationFrame(tick);const initial=getRoomFromURL();if(initial){roomInput.value=initial;connect(initial)}
-})();
-</script></body></html>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Juego Multijugador Tipo Agar.io</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: Arial, sans-serif;
+            color: white;
+        }
+        #gameCanvas {
+            background-color: #111;
+            display: block;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 14px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div><strong>Jugadores en línea:</strong> <span id="playerCount">0</span></div>
+        <div>Monto / Masa: <span id="playerSize">0</span></div>
+        <div>Usa <strong>W, A, S, D</strong> para moverte</div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        window.addEventListener("resize", () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+
+        const MAP_WIDTH = 3000;
+        const MAP_HEIGHT = 3000;
+
+        const keys = { w: false, a: false, s: false, d: false };
+
+        window.addEventListener("keydown", (e) => {
+            const k = e.key.toLowerCase();
+            if (k in keys) keys[k] = true;
+        });
+
+        window.addEventListener("keyup", (e) => {
+            const k = e.key.toLowerCase();
+            if (k in keys) keys[k] = false;
+        });
+
+        const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+        const ws = new WebSocket(`${protocol}//${location.host}/ws`);
+
+        let players = {};
+        let foods = [];
+        let myId = null;
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === "init") {
+                myId = data.id;
+            } else if (data.type === "state") {
+                players = data.players || {};
+                foods = data.foods || [];
+                document.getElementById("playerCount").innerText = Object.keys(players).length;
+                if (myId && players[myId]) {
+                    document.getElementById("playerSize").innerText = Math.round(players[myId].radius);
+                }
+            }
+        };
+
+        // Enviar teclas presionadas continuamente al servidor
+        setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(keys));
+            }
+        }, 1000 / 60);
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const me = players[myId];
+            
+            ctx.save();
+            if (me) {
+                // Centrar la cámara en el jugador
+                ctx.translate(canvas.width / 2 - me.x, canvas.height / 2 - me.y);
+            }
+
+            // Dibujar bordes del mapa
+            ctx.strokeStyle = "#444";
+            ctx.lineWidth = 10;
+            ctx.strokeRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
+
+            // Dibujar comida
+            foods.forEach(food => {
+                ctx.beginPath();
+                ctx.arc(food.x, food.y, food.radius || 5, 0, Math.PI * 2);
+                ctx.fillStyle = food.color || "#00ff00";
+                ctx.fill();
+                ctx.closePath();
+            });
+
+            // Dibujar jugadores
+            Object.values(players).forEach(player => {
+                ctx.beginPath();
+                ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+                ctx.fillStyle = player.color || "#ff0000";
+                ctx.fill();
+                ctx.closePath();
+
+                // Nombre del jugador
+                ctx.fillStyle = "#fff";
+                ctx.font = "14px Arial";
+                ctx.textAlign = "center";
+                ctx.fillText(player.name, player.x, player.y - player.radius - 5);
+            });
+
+            ctx.restore();
+            requestAnimationFrame(draw);
+        }
+
+        draw();
+    </script>
+</body>
+</html>
