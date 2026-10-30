@@ -9,20 +9,19 @@
             margin: 0;
             padding: 0;
             overflow: hidden;
-            background-color: #1a1a1a;
+            background-color: #111;
             font-family: Arial, sans-serif;
             color: white;
         }
         #gameCanvas {
-            background-color: #111;
             display: block;
         }
         #ui {
             position: absolute;
             top: 10px;
             left: 10px;
-            background: rgba(0, 0, 0, 0.6);
-            padding: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 12px;
             border-radius: 8px;
             font-size: 14px;
             pointer-events: none;
@@ -32,8 +31,8 @@
 <body>
     <div id="ui">
         <div><strong>Jugadores en línea:</strong> <span id="playerCount">0</span></div>
-        <div>Monto / Masa: <span id="playerSize">0</span></div>
-        <div>Usa <strong>W, A, S, D</strong> para moverte</div>
+        <div>Masa / Tamaño: <span id="playerSize">0</span></div>
+        <div><strong>W</strong>: Arriba | <strong>S</strong>: Abajo | <strong>A</strong>: Izquierda | <strong>D</strong>: Derecha</div>
     </div>
     <canvas id="gameCanvas"></canvas>
 
@@ -85,54 +84,89 @@
             }
         };
 
-        // Enviar teclas presionadas continuamente al servidor
+        // Enviar controles continuamente al servidor
         setInterval(() => {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify(keys));
             }
         }, 1000 / 60);
 
+        function drawGrid(me) {
+            ctx.strokeStyle = "#222";
+            ctx.lineWidth = 1;
+            const gridSize = 50;
+
+            const startX = Math.floor((me.x - canvas.width / 2) / gridSize) * gridSize;
+            const endX = startX + canvas.width + gridSize * 2;
+            const startY = Math.floor((me.y - canvas.height / 2) / gridSize) * gridSize;
+            const endY = startY + canvas.height + gridSize * 2;
+
+            for (let x = startX; x < endX; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, startY);
+                ctx.lineTo(x, endY);
+                ctx.stroke();
+            }
+            for (let y = startY; y < endY; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(startX, y);
+                ctx.lineTo(endX, y);
+                ctx.stroke();
+            }
+        }
+
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             const me = players[myId];
-            
-            ctx.save();
+
             if (me) {
-                // Centrar la cámara en el jugador
+                ctx.save();
+                // Centrar la cámara exactamente en tu bola
                 ctx.translate(canvas.width / 2 - me.x, canvas.height / 2 - me.y);
+
+                // Dibujar cuadrícula de fondo
+                drawGrid(me);
+
+                // Bordes del mapa
+                ctx.strokeStyle = "#ff4444";
+                ctx.lineWidth = 8;
+                ctx.strokeRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
+
+                // Dibujar puntos de comida
+                foods.forEach(food => {
+                    ctx.beginPath();
+                    ctx.arc(food.x, food.y, food.radius || 5, 0, Math.PI * 2);
+                    ctx.fillStyle = food.color || "#00ff00";
+                    ctx.fill();
+                    ctx.closePath();
+                });
+
+                // Dibujar jugadores
+                Object.values(players).forEach(player => {
+                    ctx.beginPath();
+                    ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = player.color || "#00ccff";
+                    ctx.fill();
+                    ctx.closePath();
+
+                    // Resaltar tu propia bola con un borde blanco
+                    if (player.id === myId) {
+                        ctx.strokeStyle = "#ffffff";
+                        ctx.lineWidth = 4;
+                        ctx.stroke();
+                    }
+
+                    // Nombre del jugador
+                    ctx.fillStyle = "#ffffff";
+                    ctx.font = "bold 14px Arial";
+                    ctx.textAlign = "center";
+                    ctx.fillText(player.name, player.x, player.y - player.radius - 8);
+                });
+
+                ctx.restore();
             }
 
-            // Dibujar bordes del mapa
-            ctx.strokeStyle = "#444";
-            ctx.lineWidth = 10;
-            ctx.strokeRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
-
-            // Dibujar comida
-            foods.forEach(food => {
-                ctx.beginPath();
-                ctx.arc(food.x, food.y, food.radius || 5, 0, Math.PI * 2);
-                ctx.fillStyle = food.color || "#00ff00";
-                ctx.fill();
-                ctx.closePath();
-            });
-
-            // Dibujar jugadores
-            Object.values(players).forEach(player => {
-                ctx.beginPath();
-                ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
-                ctx.fillStyle = player.color || "#ff0000";
-                ctx.fill();
-                ctx.closePath();
-
-                // Nombre del jugador
-                ctx.fillStyle = "#fff";
-                ctx.font = "14px Arial";
-                ctx.textAlign = "center";
-                ctx.fillText(player.name, player.x, player.y - player.radius - 5);
-            });
-
-            ctx.restore();
             requestAnimationFrame(draw);
         }
 
