@@ -1,148 +1,172 @@
-
-import random
-import math
-import asyncio
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-
-app = FastAPI()
-
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-MAP_WIDTH = 3000
-MAP_HEIGHT = 3000
-
-@app.get("/")
-async def read_index():
-    return FileResponse("static/index.html")
-
-class GameServer:
-    def __init__(self):
-        self.active_connections: dict[str, WebSocket] = {}
-        self.players = {}
-        self.foods = [self.create_food() for _ in range(400)]
-        self.bots_initialized = False
-
-    def create_food(self):
-        return {
-            "x": random.randint(20, MAP_WIDTH - 20),
-            "y": random.randint(20, MAP_HEIGHT - 20),
-            "radius": 5,
-            "color": f"hsl({random.randint(0, 360)}, 80%, 60%)"
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Juego Agar.io Multijugador</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #111;
+            font-family: Arial, sans-serif;
+            color: white;
         }
+        #gameCanvas {
+            display: block;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div><strong>Jugadores en línea:</strong> <span id="playerCount">0</span></div>
+        <div>Masa: <span id="playerSize">0</span></div>
+        <div>Controles: <strong>W</strong> (Arriba), <strong>S</strong> (Abajo), <strong>A</strong> (Izquierda), <strong>D</strong> (Derecha)</div>
+    </div>
 
-    def spawn_bots(self, count=10):
-        for i in range(count):
-            bot_id = f"bot_{i}"
-            if bot_id not in self.players:
-                self.players[bot_id] = {
-                    "id": bot_id,
-                    "x": random.randint(200, MAP_WIDTH - 200),
-                    "y": random.randint(200, MAP_HEIGHT - 200),
-                    "radius": random.randint(20, 35),
-                    "color": f"hsl({random.randint(0, 360)}, 70%, 50%)",
-                    "name": f"[Bot] {i+1}",
-                    "is_bot": True,
-                    "dir_x": random.choice([-1, 1]),
-                    "dir_y": random.choice([-1, 1])
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        window.addEventListener("resize", () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+
+        const MAP_WIDTH = 3000;
+        const MAP_HEIGHT = 3000;
+
+        const keys = { w: false, a: false, s: false, d: false };
+
+        window.addEventListener("keydown", (e) => {
+            const k = e.key.toLowerCase();
+            if (k in keys) keys[k] = true;
+        });
+
+        window.addEventListener("keyup", (e) => {
+            const k = e.key.toLowerCase();
+            if (k in keys) keys[k] = false;
+        });
+
+        const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+        const ws = new WebSocket(`${protocol}//${location.host}/ws`);
+
+        let players = {};
+        let foods = [];
+        let myId = null;
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === "init") {
+                myId = data.id;
+            } else if (data.type === "state") {
+                players = data.players || {};
+                foods = data.foods || [];
+                document.getElementById("playerCount").innerText = Object.keys(players).length;
+                if (myId && players[myId]) {
+                    document.getElementById("playerSize").innerText = Math.round(players[myId].radius);
                 }
+            }
+        };
 
-    async def connect(self, websocket: WebSocket, player_id: str):
-        await websocket.accept()
-        self.active_connections[player_id] = websocket
+        setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(keys));
+            }
+        }, 1000 / 60);
 
-    def add_player(self, player_id: str, name: str, mode: str):
-        self.players[player_id] = {
-            "id": player_id,
-            "x": random.randint(300, MAP_WIDTH - 300),
-            "y": random.randint(300, MAP_HEIGHT - 300),
-            "radius": 25,
-            "color": f"hsl({random.randint(0, 360)}, 90%, 55%)",
-            "name": name,
-            "is_bot": False
+        function drawGrid(me) {
+            ctx.strokeStyle = "#222";
+            ctx.lineWidth = 1;
+            const gridSize = 60;
+
+            const startX = Math.floor((me.x - canvas.width / 2) / gridSize) * gridSize;
+            const endX = startX + canvas.width + gridSize * 2;
+            const startY = Math.floor((me.y - canvas.height / 2) / gridSize) * gridSize;
+            const endY = startY + canvas.height + gridSize * 2;
+
+            for (let x = startX; x < endX; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, startY);
+                ctx.lineTo(x, endY);
+                ctx.stroke();
+            }
+            for (let y = startY; y < endY; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(startX, y);
+                ctx.lineTo(endX, y);
+                ctx.stroke();
+            }
         }
 
-        if mode == "bots" and not self.bots_initialized:
-            self.spawn_bots(15)
-            self.bots_initialized = True
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    def disconnect(self, player_id: str):
-        if player_id in self.active_connections:
-            del self.active_connections[player_id]
-        if player_id in self.players:
-            del self.players[player_id]
+            const me = players[myId];
 
-    def update_game_logic(self):
-        # Actualizar Bots
-        for p in self.players.values():
-            if p.get("is_bot"):
-                speed = max(1.5, 5 - (p["radius"] * 0.02))
-                if random.random() < 0.02:
-                    p["dir_x"] = random.choice([-1, 0, 1])
-                    p["dir_y"] = random.choice([-1, 0, 1])
+            if (me) {
+                ctx.save();
+                ctx.translate(canvas.width / 2 - me.x, canvas.height / 2 - me.y);
 
-                p["x"] += p["dir_x"] * speed
-                p["y"] += p["dir_y"] * speed
+                drawGrid(me);
 
-                p["x"] = max(p["radius"], min(MAP_WIDTH - p["radius"], p["x"]))
-                p["y"] = max(p["radius"], min(MAP_HEIGHT - p["radius"], p["y"]))
+                // Borde rojo del mapa grande
+                ctx.strokeStyle = "#ff0000";
+                ctx.lineWidth = 8;
+                ctx.strokeRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
 
-        # Lógica de consumo de comida
-        for p in list(self.players.values()):
-            for food in self.foods[:]:
-                dist = math.hypot(p["x"] - food["x"], p["y"] - food["y"])
-                if dist < p["radius"]:
-                    self.foods.remove(food)
-                    p["radius"] += 0.5
-                    self.foods.append(self.create_food())
+                // Dibujar puntos de comida
+                foods.forEach(food => {
+                    ctx.beginPath();
+                    ctx.arc(food.x, food.y, food.radius || 5, 0, Math.PI * 2);
+                    ctx.fillStyle = food.color || "#00ff00";
+                    ctx.fill();
+                    ctx.closePath();
+                });
 
-    def update_player_input(self, player_id: str, keys: dict):
-        if player_id not in self.players:
-            return
+                // Dibujar jugadores
+                Object.values(players).forEach(player => {
+                    ctx.beginPath();
+                    ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = player.color || "#00ccff";
+                    ctx.fill();
+                    ctx.closePath();
 
-        p = self.players[player_id]
-        speed = max(2.5, 7 - (p["radius"] * 0.03))
+                    if (player.id === myId) {
+                        ctx.strokeStyle = "#ffffff";
+                        ctx.lineWidth = 4;
+                        ctx.stroke();
+                    }
 
-        # Teclas: W (Arriba), S (Abajo), A (Izquierda), D (Derecha)
-        if keys.get("w"): p["y"] -= speed
-        if keys.get("s"): p["y"] += speed
-        if keys.get("a"): p["x"] -= speed
-        if keys.get("d"): p["x"] += speed
+                    ctx.fillStyle = "#ffffff";
+                    ctx.font = "bold 14px Arial";
+                    ctx.textAlign = "center";
+                    ctx.fillText(player.name, player.x, player.y - player.radius - 8);
+                });
 
-        p["x"] = max(p["radius"], min(MAP_WIDTH - p["radius"], p["x"]))
-        p["y"] = max(p["radius"], min(MAP_HEIGHT - p["radius"], p["y"]))
+                ctx.restore();
+            }
 
-    async def broadcast(self):
-        state = {
-            "type": "state",
-            "players": self.players,
-            "foods": self.foods
+            requestAnimationFrame(draw);
         }
-        for connection in list(self.active_connections.values()):
-            try:
-                await connection.send_json(state)
-            except Exception:
-                pass
 
-game = GameServer()
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    player_id = str(id(websocket))
-    await game.connect(websocket, player_id)
-    try:
-        while True:
-            data = await websocket.receive_json()
-            if data.get("type") == "join":
-                game.add_player(player_id, data.get("name", "Jugador"), data.get("mode", "online"))
-                await websocket.send_json({"type": "init", "id": player_id})
-            elif data.get("type") == "input":
-                game.update_player_input(player_id, data.get("keys", {}))
-
-            game.update_game_logic()
-            await game.broadcast()
-            await asyncio.sleep(0.016)
-    except WebSocketDisconnect:
-        game.disconnect(player_id)
-        await game.broadcast()
+        draw();
+    </script>
+</body>
+</html>
