@@ -20,7 +20,7 @@ class GameServer:
     def __init__(self):
         self.active_connections: dict[str, WebSocket] = {}
         self.players = {}
-        self.foods = [self.create_food() for _ in range(300)]
+        self.foods = [self.create_food() for _ in range(400)]
 
     def create_food(self):
         return {
@@ -34,10 +34,10 @@ class GameServer:
         await websocket.accept()
         self.active_connections[player_id] = websocket
         self.players[player_id] = {
-            "x": random.randint(100, MAP_WIDTH - 100),
-            "y": random.randint(100, MAP_HEIGHT - 100),
-            "radius": 20,
-            "speed": 5,
+            "id": player_id,
+            "x": random.randint(300, MAP_WIDTH - 300),
+            "y": random.randint(300, MAP_HEIGHT - 300),
+            "radius": 25,
             "color": f"hsl({random.randint(0, 360)}, 90%, 55%)",
             "name": f"Jugador {len(self.players) + 1}"
         }
@@ -54,23 +54,25 @@ class GameServer:
             return
 
         p = self.players[player_id]
-        speed = max(2, 8 - (p["radius"] * 0.05)) # A mayor tamaño, menor velocidad
+        speed = max(2.5, 7 - (p["radius"] * 0.03))
 
+        # Movimiento arreglado:
+        # W: Arriba | S: Abajo | A: Izquierda | D: Derecha
         if keys.get("w"): p["y"] -= speed
         if keys.get("s"): p["y"] += speed
         if keys.get("a"): p["x"] -= speed
         if keys.get("d"): p["x"] += speed
 
-        # Limitar dentro del mapa
+        # Limitar posición dentro del mapa
         p["x"] = max(p["radius"], min(MAP_WIDTH - p["radius"], p["x"]))
         p["y"] = max(p["radius"], min(MAP_HEIGHT - p["radius"], p["y"]))
 
-        # Lógica para comer comida
+        # Colisión con comida para aumentar tamaño
         for food in self.foods[:]:
             dist = math.hypot(p["x"] - food["x"], p["y"] - food["y"])
             if dist < p["radius"]:
                 self.foods.remove(food)
-                p["radius"] += 0.4
+                p["radius"] += 0.5
                 self.foods.append(self.create_food())
 
     async def broadcast(self):
@@ -96,9 +98,7 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_json()
             game.update_player_input(player_id, data)
             await game.broadcast()
-            await asyncio.sleep(0.016) # ~60 FPS
+            await asyncio.sleep(0.016)
     except WebSocketDisconnect:
         game.disconnect(player_id)
         await game.broadcast()
-      
-          
